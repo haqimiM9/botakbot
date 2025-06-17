@@ -1,6 +1,6 @@
 import os
 import requests
-import threading
+import asyncio
 from datetime import datetime
 from flask import Flask
 from telegram import Update
@@ -9,6 +9,7 @@ from telegram.ext import Application, CommandHandler, ContextTypes
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 GOLDAPI_KEY = os.getenv("GOLDAPI_KEY")
 
+# Telegram commands
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("Hi, welcome to BotakBot!\nTo get gold price, type /gold")
 
@@ -56,20 +57,32 @@ async def gold(update: Update, context: ContextTypes.DEFAULT_TYPE):
         reply = f"⚠️ Error: {str(e)}"
     await update.message.reply_text(reply)
 
-def start_bot():
-    app = Application.builder().token(BOT_TOKEN).build()
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("gold", gold))
-    app.run_polling()
-
-# Flask app to keep Render happy
+# Flask app for Render
 flask_app = Flask(__name__)
 
 @flask_app.route("/")
 def index():
     return "Bot is running!", 200
 
-if __name__ == "__main__":
-    threading.Thread(target=start_bot).start()
+# Async runner for both Flask and Telegram
+async def run():
+    # Start Telegram bot
+    app = Application.builder().token(BOT_TOKEN).build()
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("gold", gold))
+
+    # Run bot polling (non-blocking)
+    asyncio.create_task(app.run_polling())
+
+    # Run Flask web server
     port = int(os.environ.get("PORT", 10000))
-    flask_app.run(host="0.0.0.0", port=port)
+    from hypercorn.asyncio import serve
+    from hypercorn.config import Config
+
+    config = Config()
+    config.bind = [f"0.0.0.0:{port}"]
+    await serve(flask_app, config)
+
+# Start the async runner
+if __name__ == "__main__":
+    asyncio.run(run())
